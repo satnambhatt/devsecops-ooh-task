@@ -27,27 +27,7 @@ module "s3-server-bucket" {
   attach_deny_insecure_transport_policy = true
   attach_require_latest_tls_policy      = true
 
-  website = {
-    index_document = "index.html"
-    error_document = "index.html"
-  }
-
   tags = local.tags
-}
-
-# Add CORS configuration after Amplify App is created to avoid the Circular Dependency error.
-resource "aws_s3_bucket_cors_configuration" "s3_server_bucket_cors" {
-  bucket = module.s3-server-bucket.s3_bucket_id
-
-  cors_rule {
-    allowed_methods = ["GET", "HEAD"]
-    allowed_origins = ["${aws_amplify_app.static-site.default_domain}"]
-    allowed_headers = ["*"]
-    expose_headers  = []
-    max_age_seconds = 3000
-  }
-
-  depends_on = [aws_amplify_app.static-site]
 }
 
 resource "aws_s3_object" "s3-server-bucket-object" {

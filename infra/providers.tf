@@ -10,16 +10,6 @@ provider "aws" {
 }
 
 terraform {
-  backend "s3" {
-    bucket       = "terragrunt-remote-backend"
-    encrypt      = true
-    key          = "bmi-calculator/sandbox/tf.tfstate"
-    region       = "ap-southeast-2"
-    use_lockfile = true
-  }
-}
-
-terraform {
   required_version = ">= 1.0"
 
   required_providers {

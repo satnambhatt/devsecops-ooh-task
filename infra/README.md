@@ -8,6 +8,20 @@ state_bucket   = "NAME_OF_THE_STATE_FILE_S3_BUCKET"
 project_name   = "NAME_OF_THE_PROJECT"
 ```
 
+## Creating a `backend.tf` file
+Before executing the terraform commands, create `backend.tf` file as below
+```bash
+terraform {
+  backend "s3" {
+    bucket       = "S3_STATE_BUCKET_NAME"
+    encrypt      = true
+    key          = "PATH_TO_STATE_FILE/ENVIRONMENT/tf.tfstate"
+    region       = "AWS_REGION"
+    use_lockfile = true
+  }
+}
+```
+
 ## Input Variables 
 | Variable Name | Type | Description | Required | 
 | ------------- | ---- | ----------- | -------- | 
