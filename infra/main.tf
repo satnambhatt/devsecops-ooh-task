@@ -1,66 +1,29 @@
-module "cloudfront" {
-  source  = "terraform-aws-modules/cloudfront/aws"
-  version = "5.0.0"
-
-  comment     = "CloudFront distribution for BMI Calculator App used for oOh! Media"
-  enabled     = true
-  price_class = "PriceClass_All"
-  staging     = false
-
-  create_origin_access_control = true
-  origin_access_control = {
-    s3_server_bucket = {
-      description      = "CloudFront access to S3 Server Bucket"
-      origin_type      = "s3"
-      signing_behavior = "always"
-      signing_protocol = "sigv4"
-    }
-  }
-
-  origin = {
-    s3_server_bucket = {
-      domain_name           = module.s3-server-bucket.s3_bucket_bucket_regional_domain_name
-      origin_access_control = "s3_server_bucket"
-    }
-  }
-
-  default_cache_behavior = {
-    target_origin_id       = "s3_server_bucket"
-    viewer_protocol_policy = "https-only"
-
-    allowed_methods = ["GET", "HEAD"]
-    cached_methods  = ["GET", "HEAD"]
-    compress        = true
-    query_string    = true
-  }
-
-  ordered_cache_behavior = [
-    {
-      path_pattern           = "/"
-      target_origin_id       = "s3_server_bucket"
-      viewer_protocol_policy = "https-only"
-
-      allowed_methods = ["GET", "HEAD"]
-      cached_methods  = ["GET", "HEAD"]
-      compress        = true
-      query_string    = true
-    }
-  ]
-
+resource "aws_amplify_app" "static-site" {
+  name = "${var.project_name}-${var.env}"
   tags = local.tags
+}
 
+resource "aws_amplify_branch" "site" {
+  app_id      = aws_amplify_app.static-site.id
+  branch_name = var.env
+  tags        = local.tags
 }
 
 module "s3-server-bucket" {
+  #checkov:skip=CKV_TF_1:Ensure Terraform module sources use a commit hash
   source  = "terraform-aws-modules/s3-bucket/aws"
   version = "4.11.0"
 
+  force_destroy = true
+
   bucket                  = "${local.project_name}-${local.env}"
   block_public_acls       = true
-  block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 
+  attach_policy                         = true
+  policy                                = data.aws_iam_policy_document.bucket-policy.json
+  block_public_policy                   = true
   attach_deny_insecure_transport_policy = true
   attach_require_latest_tls_policy      = true
 
@@ -72,30 +35,41 @@ module "s3-server-bucket" {
   tags = local.tags
 }
 
-# Add CORS configuration after CloudFront is created to avoid the Circular Dependency error.
+# Add CORS configuration after Amplify App is created to avoid the Circular Dependency error.
 resource "aws_s3_bucket_cors_configuration" "s3_server_bucket_cors" {
   bucket = module.s3-server-bucket.s3_bucket_id
 
   cors_rule {
     allowed_methods = ["GET", "HEAD"]
-    allowed_origins = ["https://${module.cloudfront.cloudfront_distribution_domain_name}"]
+    allowed_origins = ["${aws_amplify_app.static-site.default_domain}"]
     allowed_headers = ["*"]
     expose_headers  = []
     max_age_seconds = 3000
   }
 
-  depends_on = [module.cloudfront]
+  depends_on = [aws_amplify_app.static-site]
 }
 
-# module "s3-logging-bucket" {
-#   source  = "terraform-aws-modules/s3-bucket/aws"
-#   version = "5.3.1"
+resource "aws_s3_object" "s3-server-bucket-object" {
+  for_each = fileset("${local.app_build_dir}", "**")
 
-#   bucket = "${local.project_name}-logs"
+  bucket = module.s3-server-bucket.s3_bucket_id
+  key    = "build/${each.value}"
+  source = "${local.app_build_dir}/${each.value}"
+  etag   = filemd5("${local.app_build_dir}/${each.value}")
+}
 
-#   control_object_ownership = true
+resource "null_resource" "deploy-app" {
+  triggers = {
+    id = timestamp()
+  }
 
-#   attach_access_log_delivery_policy     = true
+  provisioner "local-exec" {
+    command = "aws amplify start-deployment --app-id ${aws_amplify_app.static-site.id} --branch-name ${var.env} --source-url s3://${local.project_name}-${local.env}/build/ --source-url-type BUCKET_PREFIX"
+  }
 
-#   access_log_delivery_policy_source_accounts      = [data.aws_caller_identity.current.account_id]
-# }
+  depends_on = [
+    aws_amplify_app.static-site,
+    aws_s3_object.s3-server-bucket-object
+  ]
+}
